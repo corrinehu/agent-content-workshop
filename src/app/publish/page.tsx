@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Navbar from "@/components/Navbar";
 
@@ -9,7 +9,7 @@ interface UserState {
   avatar: string | null;
 }
 
-export default function PublishPage() {
+function PublishContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [user, setUser] = useState<UserState | null>(null);
@@ -20,6 +20,7 @@ export default function PublishPage() {
   const [auditError, setAuditError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const publishMode = searchParams.get("mode") || "deep";
 
   useEffect(() => {
     const urlArticleId = searchParams.get("articleId");
@@ -111,7 +112,9 @@ export default function PublishPage() {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold mb-1">发布预览</h1>
-            <p className="text-sm text-muted">审计通过后发布到知乎</p>
+            <p className="text-sm text-muted">
+              {publishMode === "quick" ? "闪念模式 · 审计通过后发布想法到知乎圈子" : "深度模式 · 审计通过后发布文章到知乎圈子"}
+            </p>
           </div>
           <div className="flex gap-2">
             <button
@@ -150,7 +153,7 @@ export default function PublishPage() {
                     : undefined
               }
             >
-              {publishing ? "发布中..." : "发布到圈子"}
+              {publishing ? "发布中..." : publishMode === "quick" ? "发布想法" : "发布文章"}
             </button>
           </div>
         </div>
@@ -291,5 +294,13 @@ export default function PublishPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function PublishPage() {
+  return (
+    <Suspense>
+      <PublishContent />
+    </Suspense>
   );
 }

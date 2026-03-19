@@ -1,74 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getSecondMeShades } from "@/lib/secondme";
+import { getSecondMeShades, getSecondMeSoftMemory } from "@/lib/secondme";
+import { fetchRingDetail, type RingContent, type RingInfo } from "@/lib/zhihu";
 
-// Zhihu hot list API (proxy with caching)
-const ZHIHU_HOT_LIST = "https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total";
+// The two hackathon circles
+const RING_IDS = ["2001009660925334090", "2015023739549529606"];
 
-interface ZhihuHotItem {
-  target: {
-    id: number;
-    title: string;
-    excerpt: string;
-    answer_count: number;
-  };
-  detail_text: string;
+// In-memory cache
+interface CachedRingData {
+  ringInfo: RingInfo;
+  contents: RingContent[];
+  ringId: string;
 }
+const cache = new Map<string, { data: CachedRingData[]; expires: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-// Simple in-memory cache
-const cache = new Map<string, { data: unknown; expires: number }>();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
-
-async function fetchHotList(): Promise<ZhihuHotItem[]> {
-  const cached = cache.get("hotlist");
+async function getCachedRingContents(): Promise<CachedRingData[]> {
+  const cached = cache.get("rings");
   if (cached && cached.expires > Date.now()) {
-    return cached.data as ZhihuHotItem[];
+    return cached.data;
   }
 
-  try {
-    const res = await fetch(ZHIHU_HOT_LIST, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; AgentContentWorkshop/1.0)",
-      },
-      next: { revalidate: 600 },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
-    const items: ZhihuHotItem[] = json.data || [];
-    if (items.length === 0) throw new Error("Empty data from Zhihu");
-    cache.set("hotlist", { data: items, expires: Date.now() + CACHE_TTL });
-    return items;
-  } catch (err) {
-    console.warn("Zhihu hot list fetch failed, using fallback:", err);
-    // Fallback demo data when Zhihu API is unreachable
-    const fallback: ZhihuHotItem[] = [
-      { target: { id: 1, title: "2026年，大模型的推理能力真的能替代程序员吗？", excerpt: "随着Claude、GPT等模型的推理能力持续进化，关于AI是否会取代程序员的讨论再次升温。", answer_count: 126 }, detail_text: "热议中" },
-      { target: { id: 2, title: "为什么越来越多年轻人选择「数字游民」生活方式？", excerpt: "远程办公、AI工具普及，让不坐班的自由工作方式成为可能。", answer_count: 89 }, detail_text: "热议中" },
-      { target: { id: 3, title: "如何评价 2026 年前端开发的技术趋势？", excerpt: "从React Server Components到AI原生UI，前端领域正在经历巨大变革。", answer_count: 203 }, detail_text: "热议中" },
-      { target: { id: 4, title: "AI Agent 会是下一个万亿级赛道吗？", excerpt: "从AutoGPT到多Agent协作，Agent技术正在从概念走向产品化。", answer_count: 312 }, detail_text: "热议中" },
-      { target: { id: 5, title: "作为一个AI工程师，你的日常工作流是什么样的？", excerpt: "想了解一线AI工程师真实的工作状态和工具链。", answer_count: 78 }, detail_text: "热议中" },
-      { target: { id: 6, title: "为什么说 Prompt Engineering 正在消亡？", excerpt: "随着模型能力提升，精心设计Prompt的重要性是否在降低？", answer_count: 167 }, detail_text: "热议中" },
-      { target: { id: 7, title: "如何在工作中高效使用 AI 编程助手？", excerpt: "分享实际使用Claude Code、Copilot等工具提升效率的经验。", answer_count: 245 }, detail_text: "热议中" },
-      { target: { id: 8, title: "2026年最值得学习的编程语言是什么？", excerpt: "Python、Rust、Go还是TypeScript？技术选型的讨论从未停止。", answer_count: 198 }, detail_text: "热议中" },
-      { target: { id: 9, title: "开源大模型和闭源大模型，你会怎么选？", excerpt: "Llama、DeepSeek vs GPT、Claude，各自的优劣在哪里？", answer_count: 156 }, detail_text: "热议中" },
-      { target: { id: 10, title: "如何看待「人人都是开发者」的趋势？", excerpt: "AI编程工具降低了门槛，但专业开发者的价值在哪里？", answer_count: 134 }, detail_text: "热议中" },
-    ];
-    cache.set("hotlist", { data: fallback, expires: Date.now() + 60 * 1000 }); // shorter cache for fallback
-    return fallback;
+  const results: CachedRingData[] = [];
+  for (const ringId of RING_IDS) {
+    try {
+      const detail = await fetchRingDetail(ringId, 1, 20);
+      results.push({ ringInfo: detail.ring_info, contents: detail.contents || [], ringId });
+    } catch (err) {
+      console.warn(`[Topics] Failed to fetch ring ${ringId}:`, err);
+    }
   }
+
+  cache.set("rings", { data: results, expires: Date.now() + CACHE_TTL });
+  return results;
 }
 
-// Simple keyword matching for topic recommendation
-function matchScore(topic: string, interests: string[]): number {
-  const lower = topic.toLowerCase();
-  return interests.reduce((score, interest) => {
-    const keywords = interest.toLowerCase().split(/[，,、\s]+/);
-    for (const kw of keywords) {
-      if (kw && lower.includes(kw)) return score + 1;
-    }
+// Keyword matching
+function keywordMatchScore(text: string, keywords: string[]): number {
+  const lower = text.toLowerCase();
+  return keywords.reduce((score, kw) => {
+    if (kw && lower.includes(kw.toLowerCase())) return score + 1;
     return score;
   }, 0);
+}
+
+// Extract meaningful Chinese terms (2-4 chars)
+function extractTerms(text: string): string[] {
+  const matches = text.match(/[\u4e00-\u9fa5]{2,4}/g) || [];
+  const freq = new Map<string, number>();
+  for (const m of matches) {
+    freq.set(m, (freq.get(m) || 0) + 1);
+  }
+  return Array.from(freq.keys());
 }
 
 export async function GET() {
@@ -90,34 +74,97 @@ export async function GET() {
       // Continue without interests
     }
 
-    // Fetch hot list
-    const hotItems = await fetchHotList();
+    // Fetch user soft memory
+    let softMemoryTerms: string[] = [];
+    try {
+      const memRes = await getSecondMeSoftMemory(user.accessToken);
+      if (memRes?.data) {
+        const memories = Array.isArray(memRes.data) ? memRes.data : memRes.data.memories || [];
+        const memoryText = memories
+          .slice(0, 10)
+          .map((m: { content?: string; text?: string }) => m.content || m.text || "")
+          .filter(Boolean)
+          .join(" ");
+        softMemoryTerms = extractTerms(memoryText);
+      }
+    } catch {
+      // Continue without soft memory
+    }
 
-    // Score and sort topics
-    const scored = hotItems.slice(0, 50).map((item, index) => {
-      const title = item.target?.title || "";
-      const score = matchScore(title, interests);
-      return {
-        zhihuId: String(item.target?.id || index),
-        title,
-        excerpt: item.target?.excerpt || item.detail_text || "",
-        heatScore: (50 - index) + score * 10,
-        answerCount: item.target?.answer_count || 0,
-        matched: score > 0,
-      };
+    // Fetch circle contents
+    const ringData = await getCachedRingContents();
+
+    // Flatten all circle contents into topic cards
+    const allKeywords = [...interests, ...softMemoryTerms];
+    const topics: {
+      zhihuId: string;
+      title: string;
+      excerpt: string;
+      heatScore: number;
+      matchScore: number;
+      answerCount: number;
+      matched: boolean;
+      ringName: string;
+      ringId: string;
+      authorName: string;
+      likeNum: number;
+      commentNum: number;
+    }[] = [];
+
+    for (const ring of ringData) {
+      const ringName = ring.ringInfo?.ring_name || "未知圈子";
+      for (const item of ring.contents) {
+        // Strip HTML tags for display
+        const cleanContent = item.content.replace(/<[^>]*>/g, "").trim();
+        // Use first sentence or first 50 chars as title
+        const title = cleanContent.length > 50 ? cleanContent.slice(0, 50) + "..." : cleanContent;
+        const combined = `${item.author_name} ${cleanContent}`;
+
+        const interestScore = keywordMatchScore(combined, interests);
+        const memoryScore = keywordMatchScore(combined, softMemoryTerms);
+        const totalMatch = interestScore * 3 + memoryScore;
+
+        topics.push({
+          zhihuId: String(item.pin_id),
+          title,
+          excerpt: cleanContent.slice(0, 120),
+          heatScore: (item.like_num || 0) + (item.comment_num || 0) * 2 + (item.fav_num || 0) * 3,
+          matchScore: totalMatch,
+          answerCount: item.comment_num || 0,
+          matched: totalMatch > 0,
+          ringName,
+          ringId: ring.ringId,
+          authorName: item.author_name || "匿名",
+          likeNum: item.like_num || 0,
+          commentNum: item.comment_num || 0,
+        });
+      }
+    }
+
+    // Sort: matched first, then by heat
+    topics.sort((a, b) => {
+      if (a.matched && !b.matched) return -1;
+      if (!a.matched && b.matched) return 1;
+      if (a.matched && b.matched) return b.matchScore - a.matchScore || b.heatScore - a.heatScore;
+      return b.heatScore - a.heatScore;
     });
-
-    scored.sort((a, b) => b.heatScore - a.heatScore);
 
     return NextResponse.json({
       code: 0,
       data: {
-        topics: scored.slice(0, 20),
+        topics: topics.slice(0, 30),
         interests,
+        rings: ringData.map(r => ({
+          id: r.ringId,
+          name: r.ringInfo?.ring_name,
+          members: r.ringInfo?.membership_num,
+          discussions: r.ringInfo?.discussion_num,
+        })),
       },
     });
   } catch (err) {
-    return NextResponse.json({ code: -1, message: "获取热榜失败: " + String(err) }, { status: 500 });
+    console.error("[Topics] Fetch failed:", err);
+    return NextResponse.json({ code: -1, message: "获取圈子内容失败: " + String(err) }, { status: 500 });
   }
 }
 
@@ -127,7 +174,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ code: -1, message: "未登录" }, { status: 401 });
   }
 
-  const { zhihuId, title, excerpt, heatScore, answerCount } = await request.json();
+  const { zhihuId, title, excerpt, heatScore, answerCount, ringId, ringName } = await request.json();
 
   const topic = await prisma.topic.create({
     data: {

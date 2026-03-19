@@ -7,6 +7,7 @@ const SYSTEM_PROMPTS = {
   researcher: "你是一位专业的研究员 Agent。为知乎回答补充数据支撑和案例。只补充 2-3 个关键数据点或案例，每个用一两句话说明，保持精炼。不要长篇大论。",
   challenger: "你是一位严格的挑战者 Agent。对知乎回答草稿提出质疑，找出逻辑漏洞。只提出 1-2 个最核心的问题，每个用一两句话说明。回复要简短直接。",
   editor: "你是一位资深知乎编辑 Agent。打磨内容为知乎发布风格：先 hook 后论证，语气真诚。重要：必须输出完整内容，控制在 600-800 字，不要截断，不要省略段落结尾。直接输出最终版本，不要解释你做了什么修改。",
+  quickEditor: "你是一位高效的知乎编辑。将用户的观点快速打磨成 100-300 字的知乎想法（Pin）。要求：有一个吸引人的开头 hook，核心观点清晰，语气真诚自然。重要：输出纯文本，不要使用任何 markdown 格式（不要用 #、**、-、> 等符号），用空行分段即可。直接输出最终版本，不要解释。",
 };
 
 export async function POST(request: NextRequest) {
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ code: -1, message: "未登录" }, { status: 401 });
   }
 
-  const { topicId, title, materials, sessionId } = await request.json();
+  const { topicId, title, materials, sessionId, mode = "deep" } = await request.json();
 
   // Try to find topic in DB, fallback to using title directly
   let topicTitle = title || "未知话题";
@@ -37,68 +38,86 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        // Step 1: Owner Agent proposes core argument
-        sendEvent("system", "开始 A2A 协作创作...");
-        sendEvent("owner", `正在让 Owner Agent 基于素材提出核心论点...`);
-
-        let ownerDraft = "";
-        await sendChatMessage(
-          user.accessToken,
-          sessionId,
-          `针对知乎问题"${topicTitle}"，以下是一位用户写下的真实观点和经历。请基于这些真实素材来构建回答框架，不要编造用户的经历。控制在 300 字以内。\n\n用户的真实观点：\n${materials}`,
-          (chunk) => { ownerDraft += chunk; },
-        );
-        sendEvent("owner", ownerDraft);
-
-        // Step 2: Researcher supplements data
-        sendEvent("system", "研究员 Agent 正在补充数据支撑...");
-        let researchDraft = "";
-        await sendChatMessage(
-          user.accessToken,
-          sessionId,
-          `${SYSTEM_PROMPTS.researcher}\n\n以下是某人的回答草稿，请补充数据支撑和案例佐证：\n${ownerDraft}\n\n可用素材：${materials}`,
-          (chunk) => { researchDraft += chunk; },
-        );
-        sendEvent("researcher", researchDraft);
-
-        // Step 3: Challenger raises critiques
-        sendEvent("system", "挑战者 Agent 正在提出质疑...");
-        let critique = "";
-        await sendChatMessage(
-          user.accessToken,
-          sessionId,
-          `${SYSTEM_PROMPTS.challenger}\n\n回答草稿：\n${ownerDraft}\n\n补充数据：${researchDraft}`,
-          (chunk) => { critique += chunk; },
-        );
-        sendEvent("challenger", critique);
-
-        // Step 4: Owner responds to critique
-        sendEvent("system", "Owner Agent 正在回应质疑...");
-        let refinedDraft = "";
-        await sendChatMessage(
-          user.accessToken,
-          sessionId,
-          `你的回答被质疑：${critique}\n请回应质疑，调整论点，控制在 300 字以内。`,
-          (chunk) => { refinedDraft += chunk; },
-        );
-        sendEvent("owner", refinedDraft);
-
-        // Step 5: Editor polishes
-        sendEvent("system", "编辑 Agent 正在打磨最终版本...");
         let finalDraft = "";
-        await sendChatMessage(
-          user.accessToken,
-          sessionId,
-          `${SYSTEM_PROMPTS.editor}\n\n重要：请输出完整版本，不要省略任何段落，不要在中间截断。篇幅控制在 800 字以内，确保每个部分都有开头和结尾。\n\n原文：\n${refinedDraft}`,
-          (chunk) => { finalDraft += chunk; },
-        );
-        sendEvent("editor", finalDraft);
-        sendEvent("system", "协作完成！");
+
+        if (mode === "quick") {
+          // ========== 闪念模式：1 Agent (Editor) ==========
+          sendEvent("system", "闪念模式：编辑 Agent 快速生成中...");
+
+          let quickDraft = "";
+          await sendChatMessage(
+            user.accessToken,
+            sessionId,
+            `${SYSTEM_PROMPTS.quickEditor}\n\n话题：${topicTitle}\n\n用户的观点：\n${materials}`,
+            (chunk) => { quickDraft += chunk; },
+          );
+          finalDraft = quickDraft;
+          sendEvent("editor", quickDraft);
+          sendEvent("system", "生成完成！");
+        } else {
+          // ========== 深度模式：4 Agent 协作 ==========
+          sendEvent("system", "深度模式：开始 A2A 协作创作...");
+          sendEvent("owner", `正在让 Owner Agent 基于素材提出核心论点...`);
+
+          let ownerDraft = "";
+          await sendChatMessage(
+            user.accessToken,
+            sessionId,
+            `针对知乎问题"${topicTitle}"，以下是一位用户写下的真实观点和经历。请基于这些真实素材来构建回答框架，不要编造用户的经历。控制在 300 字以内。\n\n用户的真实观点：\n${materials}`,
+            (chunk) => { ownerDraft += chunk; },
+          );
+          sendEvent("owner", ownerDraft);
+
+          // Step 2: Researcher supplements data
+          sendEvent("system", "研究员 Agent 正在补充数据支撑...");
+          let researchDraft = "";
+          await sendChatMessage(
+            user.accessToken,
+            sessionId,
+            `${SYSTEM_PROMPTS.researcher}\n\n以下是某人的回答草稿，请补充数据支撑和案例佐证：\n${ownerDraft}\n\n可用素材：${materials}`,
+            (chunk) => { researchDraft += chunk; },
+          );
+          sendEvent("researcher", researchDraft);
+
+          // Step 3: Challenger raises critiques
+          sendEvent("system", "挑战者 Agent 正在提出质疑...");
+          let critique = "";
+          await sendChatMessage(
+            user.accessToken,
+            sessionId,
+            `${SYSTEM_PROMPTS.challenger}\n\n回答草稿：\n${ownerDraft}\n\n补充数据：${researchDraft}`,
+            (chunk) => { critique += chunk; },
+          );
+          sendEvent("challenger", critique);
+
+          // Step 4: Owner responds to critique
+          sendEvent("system", "Owner Agent 正在回应质疑...");
+          let refinedDraft = "";
+          await sendChatMessage(
+            user.accessToken,
+            sessionId,
+            `你的回答被质疑：${critique}\n请回应质疑，调整论点，控制在 300 字以内。`,
+            (chunk) => { refinedDraft += chunk; },
+          );
+          sendEvent("owner", refinedDraft);
+
+          // Step 5: Editor polishes
+          sendEvent("system", "编辑 Agent 正在打磨最终版本...");
+          let editorDraft = "";
+          await sendChatMessage(
+            user.accessToken,
+            sessionId,
+            `${SYSTEM_PROMPTS.editor}\n\n重要：请输出完整版本，不要省略任何段落，不要在中间截断。篇幅控制在 800 字以内，确保每个部分都有开头和结尾。\n\n原文：\n${refinedDraft}`,
+            (chunk) => { editorDraft += chunk; },
+          );
+          finalDraft = editorDraft;
+          sendEvent("editor", editorDraft);
+          sendEvent("system", "协作完成！");
+        }
 
         // Save article
         try {
           let articleTopicId = topicId;
-          // Ensure topic exists in DB for foreign key
           if (topicId) {
             const existing = await prisma.topic.findUnique({ where: { id: topicId } });
             if (!existing) {
@@ -114,6 +133,7 @@ export async function POST(request: NextRequest) {
               topicId: articleTopicId,
               title: topicTitle,
               content: finalDraft,
+              mode,
               status: "draft",
             },
           });

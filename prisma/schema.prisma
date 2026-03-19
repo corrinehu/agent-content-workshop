@@ -63,6 +63,7 @@ model Article {
   topicId     String    @map("topic_id")
   title       String
   content     String
+  mode        String    @default("deep")
   status      String    @default("draft")
   auditResult Json?
   publishedAt DateTime? @map("published_at")

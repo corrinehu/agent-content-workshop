@@ -44,3 +44,10 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# database
+dev.db
+
+# design docs (internal reference only)
+a2a-zhihu-content-agent-design.md
+zhihu_api_doc.md

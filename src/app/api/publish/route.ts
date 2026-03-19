@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { publishPin } from "@/lib/zhihu";
 
 export async function POST(request: NextRequest) {
   const user = await getAuthUser();
@@ -18,7 +19,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ code: -1, message: "文章不存在" }, { status: 404 });
   }
 
-  // Mark as published (actual Zhihu API publishing would go here)
+  // Publish to Zhihu circle via real API
+  let contentToken: string | null = null;
+  try {
+    const result = await publishPin({
+      title: article.title || "Agent 内容工坊",
+      content: article.content,
+    });
+    contentToken = result.content_token;
+  } catch (err) {
+    console.error("[Publish] Zhihu publish failed:", err);
+    return NextResponse.json({ code: -1, message: "知乎发布失败: " + String(err) }, { status: 500 });
+  }
+
+  // Mark as published in DB
   await prisma.article.update({
     where: { id: articleId },
     data: {
@@ -27,5 +41,8 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  return NextResponse.json({ code: 0, data: { articleId, status: "published" } });
+  return NextResponse.json({
+    code: 0,
+    data: { articleId, status: "published", contentToken },
+  });
 }

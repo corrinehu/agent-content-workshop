@@ -200,30 +200,50 @@ export async function sendActMessage(
 
   // Parse the accumulated JSON content
   if (fullContent) {
+    // Strip markdown code block wrappers
+    let stripped = fullContent
+      .replace(/^```(?:json)?\s*\n?/i, "")
+      .replace(/\n?```\s*$/i, "")
+      .trim();
+
     // Try direct parse
     try {
-      const result = JSON.parse(fullContent);
+      const result = JSON.parse(stripped);
       onChunk(result);
       return;
     } catch {}
 
-    // Try extracting JSON from surrounding text
-    const match = fullContent.match(/\{[^{}]*\}/g);
-    if (match) {
-      // Merge all JSON objects
-      let merged: Record<string, unknown> = {};
-      for (const m of match) {
-        try {
-          Object.assign(merged, JSON.parse(m));
-        } catch {}
-      }
-      if (Object.keys(merged).length > 0) {
-        onChunk(merged);
-        return;
+    // Try extracting JSON using brace counting (handles nested objects)
+    const jsonStart = stripped.indexOf("{");
+    const arrStart = stripped.indexOf("[");
+    let extractFrom = -1;
+
+    if (jsonStart !== -1 && (arrStart === -1 || jsonStart <= arrStart)) {
+      extractFrom = jsonStart;
+    } else if (arrStart !== -1) {
+      extractFrom = arrStart;
+    }
+
+    if (extractFrom !== -1) {
+      const openChar = stripped[extractFrom];
+      const closeChar = openChar === "{" ? "}" : "]";
+      let depth = 0;
+      for (let i = extractFrom; i < stripped.length; i++) {
+        if (stripped[i] === openChar) depth++;
+        else if (stripped[i] === closeChar) depth--;
+        if (depth === 0) {
+          const candidate = stripped.slice(extractFrom, i + 1);
+          try {
+            const result = JSON.parse(candidate);
+            onChunk(result);
+            return;
+          } catch {}
+          break;
+        }
       }
     }
 
-    // Last resort: if no JSON found, return raw content
+    // Last resort: return raw content
     onChunk({ raw: fullContent });
   }
 }

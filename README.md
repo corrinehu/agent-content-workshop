@@ -1,36 +1,128 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ViewpointAgent
 
-## Getting Started
+你输出核心观点，Agent 协作放大。
 
-First, run the development server:
+帮你找到值得回答的知乎问题（兴趣匹配 + 热度上升），Agent 研究观点分布、收集素材，你输出真实观点后，多 Agent 协作打磨并一键发布到知乎。
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## 核心流程
+
+```
+发现好问题 → 研究观点 → 输出观点 → 协作放大 → 审计发布
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 1. 发现好问题（Dashboard）
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- 抓取知乎圈子最新讨论，基于用户兴趣标签 + 热度分数做匹配
+- 展示话题卡片：标题、圈子来源、作者、点赞数、评论数
+- 标记"为你推荐"的话题
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 2. 研究观点（Research）
 
-## Learn More
+- Agent 搜索知乎相关讨论，获取高赞回答内容
+- 通过 SecondMe Act API 返回结构化数据，前端可视化展示：
+  - **观点比例条**：彩色横条显示各立场占比
+  - **观点卡片**：每个立场的标签、百分比、一句话概括
+  - **关键论据**：主流方 vs 反对方分列展示
+  - **用户关联 + 切入建议**：基于用户软记忆生成
+- 内嵌 Chat：用户可就研究结果与 Agent 深入讨论
 
-To learn more about Next.js, take a look at the following resources:
+### 3. 输出观点（Write）
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- 用户基于研究结果写出自己的真实观点（100 字左右）
+- 研究笔记保留在侧栏供参考
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 4. 协作放大（Workshop）
 
-## Deploy on Vercel
+两种创作模式：
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| 模式 | Agent 数量 | 输出篇幅 | 耗时 |
+|------|-----------|---------|------|
+| 闪念模式 | 1（编辑 Agent） | 100-300 字纯文本 | ~30 秒 |
+| 深度模式 | 4（Owner + 研究员 + 挑战者 + 编辑） | 600-800 字 | ~3-5 分钟 |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+深度模式协作流程：
+1. **Owner Agent** — 基于用户观点构建回答框架
+2. **研究员 Agent** — 补充数据支撑和案例
+3. **挑战者 Agent** — 提出质疑，找出逻辑漏洞
+4. **Owner Agent** — 回应质疑，调整论点
+5. **编辑 Agent** — 打磨为知乎发布风格
+
+SSE 流式输出，用户实时看到每个 Agent 的产出。
+
+### 5. 审计发布（Publish）
+
+- AI 质量审计：合规检查、质量评分、Hook 检测、知乎风格匹配
+- 审计通过后一键发布到知乎圈子（通过知乎开放 API）
+- 支持编辑修改 → 重新审计 → 再次发布
+
+## 技术栈
+
+- **Next.js 16** (App Router)
+- **React 19**
+- **TypeScript**
+- **Tailwind CSS v4**
+- **Prisma + SQLite** — 用户、话题、文章数据存储
+- **SecondMe API** — OAuth 认证、用户画像、Chat/Act Agent 调用
+- **知乎开放 API** — 圈子内容抓取、Pin 发布
+
+## 项目结构
+
+```
+src/
+├── app/
+│   ├── page.tsx              # 首页（产品介绍 + 登录）
+│   ├── dashboard/page.tsx    # 选题看板
+│   ├── workshop/page.tsx     # 研究观点 → 输出观点 → 协作放大
+│   ├── publish/page.tsx      # 审计 + 发布
+│   ├── profile/page.tsx      # 个人资料
+│   └── api/
+│       ├── auth/             # OAuth 登录回调
+│       ├── user/info/        # 用户信息
+│       ├── sessions/         # SecondMe 会话管理
+│       ├── topics/           # 话题列表 + 保存
+│       ├── research/         # Agent 研究观点分布（Act API）
+│       ├── workshop/         # 多 Agent 协作创作（SSE）
+│       ├── audit/            # AI 质量审计（Act API）
+│       ├── chat/             # Agent 聊天（SSE）
+│       ├── act/              # 通用 Act API 代理
+│       ├── articles/         # 文章 CRUD
+│       └── publish/          # 发布到知乎
+├── components/
+│   ├── Navbar.tsx            # 顶部导航
+│   └── LoginButton.tsx       # SecondMe OAuth 登录按钮
+└── lib/
+    ├── auth.ts               # 认证工具
+    ├── prisma.ts             # Prisma 客户端
+    ├── secondme.ts           # SecondMe API 封装
+    └── zhihu.ts              # 知乎开放 API 封装
+```
+
+## 开发
+
+```bash
+# 安装依赖
+npm install
+
+# 初始化数据库
+npx prisma db push
+npx prisma generate
+
+# 启动开发服务器
+npm run dev
+```
+
+需要配置以下环境变量：
+
+| 变量 | 说明 |
+|------|------|
+| `SECONDME_API_BASE_URL` | SecondMe API 地址 |
+| `SECONDME_OAUTH_URL` | OAuth 授权 URL |
+| `SECONDME_TOKEN_ENDPOINT` | Token 端点 |
+| `SECONDME_REFRESH_ENDPOINT` | Refresh Token 端点 |
+| `SECONDME_CLIENT_ID` | SecondMe App Client ID |
+| `SECONDME_CLIENT_SECRET` | SecondMe App Client Secret |
+| `SECONDME_REDIRECT_URI` | OAuth 回调地址 |
+| `ZHIHU_BASE_URL` | 知乎开放 API 地址 |
+| `ZHIHU_APP_KEY` | 知乎应用 Key |
+| `ZHIHU_APP_SECRET` | 知乎应用 Secret |
+| `ZHIHU_RING_ID` | 默认发布圈子 ID |

@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Agent Content Workshop",
+  title: "ViewpointAgent",
   description: "热度驱动选题，Agent 协作创作",
 };
 

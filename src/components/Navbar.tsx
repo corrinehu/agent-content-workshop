@@ -17,7 +17,7 @@ export default function Navbar({ userName, userAvatar }: NavbarProps) {
     <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-border">
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
         <Link href="/dashboard" className="text-lg font-bold text-primary">
-          Agent Content Workshop
+          ViewpointAgent
         </Link>
 
         <div className="flex items-center gap-4">

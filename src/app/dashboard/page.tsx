@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import Navbar from "@/components/Navbar";
 
 interface Topic {
@@ -10,8 +9,21 @@ interface Topic {
   title: string;
   excerpt: string;
   heatScore: number;
+  matchScore: number;
   answerCount: number;
   matched: boolean;
+  ringName: string;
+  ringId: string;
+  authorName: string;
+  likeNum: number;
+  commentNum: number;
+}
+
+interface RingMeta {
+  id: string;
+  name: string;
+  members: number;
+  discussions: number;
 }
 
 interface UserState {
@@ -23,6 +35,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<UserState | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
+  const [rings, setRings] = useState<RingMeta[]>([]);
   const [interests, setInterests] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -52,6 +65,7 @@ export default function DashboardPage() {
         if (topicsData.code === 0) {
           setTopics(topicsData.data.topics || []);
           setInterests(topicsData.data.interests || []);
+          setRings(topicsData.data.rings || []);
         }
       } catch {
         setError("加载数据失败");
@@ -73,11 +87,13 @@ export default function DashboardPage() {
           excerpt: topic.excerpt,
           heatScore: topic.heatScore,
           answerCount: topic.answerCount,
+          ringId: topic.ringId,
+          ringName: topic.ringName,
         }),
       });
       const data = await res.json();
       const topicId = data.data?.id || data.data?.topicId || "";
-      router.push(`/workshop?topicId=${topicId}&title=${encodeURIComponent(topic.title)}&step=write`);
+      router.push(`/workshop?topicId=${topicId}&title=${encodeURIComponent(topic.title)}`);
     } catch {
       setError("启动研究失败");
     }
@@ -103,6 +119,23 @@ export default function DashboardPage() {
 
         <div className="mb-8">
           <h1 className="text-2xl font-bold mb-2">选题看板</h1>
+          <p className="text-sm text-muted mb-3">
+            来自 A2A 黑客松指定知乎圈子的最新讨论
+          </p>
+
+          {/* Ring info */}
+          {rings.length > 0 && (
+            <div className="flex flex-wrap gap-3 mb-4">
+              {rings.map((ring) => (
+                <div key={ring.id} className="flex items-center gap-2 px-3 py-1.5 bg-primary-light rounded-lg">
+                  <span className="text-xs font-medium text-primary">{ring.name}</span>
+                  <span className="text-xs text-muted">{ring.members} 成员</span>
+                  <span className="text-xs text-muted">{ring.discussions} 讨论</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {interests.length > 0 && (
             <div className="flex flex-wrap gap-2">
               <span className="text-sm text-muted">你的兴趣：</span>
@@ -125,26 +158,27 @@ export default function DashboardPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
                     {topic.matched && (
-                      <span className="px-1.5 py-0.5 bg-primary text-white text-xs rounded font-medium">
-                        推荐
+                      <span className="px-1.5 py-0.5 bg-success text-white text-xs rounded font-medium">
+                        为你推荐
                       </span>
                     )}
-                    <span className="text-xs text-muted">#{index + 1}</span>
+                    <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+                      {topic.ringName}
+                    </span>
                   </div>
                   <h3 className="font-medium mb-1 text-foreground">{topic.title}</h3>
-                  {topic.excerpt && (
-                    <p className="text-sm text-muted line-clamp-2">{topic.excerpt}</p>
-                  )}
+                  <p className="text-sm text-muted line-clamp-2">{topic.excerpt}</p>
                   <div className="flex items-center gap-4 mt-2 text-xs text-muted">
-                    <span>热度 {topic.heatScore}</span>
-                    <span>{topic.answerCount} 回答</span>
+                    <span>{topic.authorName}</span>
+                    <span>{topic.likeNum} 赞</span>
+                    <span>{topic.commentNum} 评论</span>
                   </div>
                 </div>
                 <button
                   onClick={() => handleStartResearch(topic)}
                   className="shrink-0 px-4 py-2 bg-primary text-white text-sm rounded-lg hover:bg-secondary transition-colors cursor-pointer"
                 >
-                  开始创作
+                  让 Agent 研究一下
                 </button>
               </div>
             </div>
@@ -153,7 +187,7 @@ export default function DashboardPage() {
 
         {topics.length === 0 && !loading && (
           <div className="text-center py-16 text-muted">
-            暂无推荐选题，稍后再来看看
+            暂无圈子内容，稍后再来看看
           </div>
         )}
       </main>
