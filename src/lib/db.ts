@@ -1,43 +1,18 @@
-// Pure fetch-based Turso HTTP client — zero native dependencies
+import { createClient } from "@libsql/client";
 
-const DB_URL = process.env.TURSO_DATABASE_URL?.replace("libsql://", "https://") || "";
-const DB_TOKEN = process.env.TURSO_AUTH_TOKEN || "";
+const globalForDb = globalThis as unknown as { db: ReturnType<typeof createClient> };
 
-interface DbResult {
-  columns: string[];
-  rows: (string | number | boolean | null)[][];
-}
-
-async function execute(sql: string, args: (string | number | boolean | null)[] = []): Promise<DbResult> {
-  const res = await fetch(DB_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(DB_TOKEN ? { Authorization: `Bearer ${DB_TOKEN}` } : {}),
-    },
-    body: JSON.stringify({ statements: [{ q: sql, args }] }),
+function createDb() {
+  const dbUrl = process.env.TURSO_DATABASE_URL || "file:./dev.db";
+  const authToken = process.env.TURSO_AUTH_TOKEN;
+  return createClient({
+    url: dbUrl,
+    ...(authToken ? { authToken } : {}),
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Turso HTTP ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
-  const result = data[0]?.results;
-  if (!result) return { columns: [], rows: [] };
-
-  return {
-    columns: result.columns || [],
-    rows: (result.rows || []).map((row: unknown[]) => row.map(v => (v as string | number | boolean | null) ?? null)),
-  };
 }
 
-function rowToObj(row: (string | number | boolean | null)[], columns: string[]): Record<string, string | number | null> {
-  const obj: Record<string, string | number | null> = {};
-  columns.forEach((name, i) => { obj[name] = (typeof row[i] === "boolean" ? null : row[i]) ?? null; });
-  return obj;
-}
+export const db = globalForDb.db || createDb();
+if (process.env.NODE_ENV !== "production") globalForDb.db = db;
 
 export function generateId(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -62,13 +37,13 @@ export interface DbUser {
 }
 
 export async function findUserById(id: string): Promise<DbUser | null> {
-  const { columns, rows } = await execute("SELECT * FROM users WHERE id = ?", [id]);
-  return (rows[0] ? rowToObj(rows[0], columns) as unknown as DbUser : null);
+  const result = await db.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [id] });
+  return (result.rows[0] as unknown as DbUser) || null;
 }
 
 export async function findUserBySecondMeId(secondmeUserId: string): Promise<DbUser | null> {
-  const { columns, rows } = await execute("SELECT * FROM users WHERE secondme_user_id = ?", [secondmeUserId]);
-  return (rows[0] ? rowToObj(rows[0], columns) as unknown as DbUser : null);
+  const result = await db.execute({ sql: "SELECT * FROM users WHERE secondme_user_id = ?", args: [secondmeUserId] });
+  return (result.rows[0] as unknown as DbUser) || null;
 }
 
 export async function upsertUser(data: {
@@ -83,18 +58,18 @@ export async function upsertUser(data: {
   const now = new Date().toISOString();
 
   if (existing) {
-    await execute(
-      "UPDATE users SET access_token = ?, refresh_token = ?, token_expires_at = ?, name = ?, avatar = ?, updated_at = ? WHERE id = ?",
-      [data.accessToken, data.refreshToken, data.tokenExpiresAt.toISOString(), data.name, data.avatar, now, existing.id],
-    );
+    await db.execute({
+      sql: `UPDATE users SET access_token = ?, refresh_token = ?, token_expires_at = ?, name = ?, avatar = ?, updated_at = ? WHERE id = ?`,
+      args: [data.accessToken, data.refreshToken, data.tokenExpiresAt.toISOString(), data.name, data.avatar, now, existing.id],
+    });
     return { ...existing, access_token: data.accessToken, refresh_token: data.refreshToken, token_expires_at: data.tokenExpiresAt.toISOString(), name: data.name, avatar: data.avatar, updated_at: now };
   }
 
   const id = generateId();
-  await execute(
-    "INSERT INTO users (id, secondme_user_id, access_token, refresh_token, token_expires_at, name, avatar, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [id, data.secondmeUserId, data.accessToken, data.refreshToken, data.tokenExpiresAt.toISOString(), data.name, data.avatar, now, now],
-  );
+  await db.execute({
+    sql: `INSERT INTO users (id, secondme_user_id, access_token, refresh_token, token_expires_at, name, avatar, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [id, data.secondmeUserId, data.accessToken, data.refreshToken, data.tokenExpiresAt.toISOString(), data.name, data.avatar, now, now],
+  });
   return { id, secondme_user_id: data.secondmeUserId, access_token: data.accessToken, refresh_token: data.refreshToken, token_expires_at: data.tokenExpiresAt.toISOString(), name: data.name, avatar: data.avatar, created_at: now, updated_at: now };
 }
 
@@ -115,7 +90,7 @@ export async function updateUser(id: string, data: {
   args.push(new Date().toISOString());
   args.push(id);
 
-  await execute(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, args);
+  await db.execute({ sql: `UPDATE users SET ${sets.join(", ")} WHERE id = ?`, args });
 }
 
 // ---- Topic operations ----
@@ -145,16 +120,16 @@ export async function createTopic(data: {
 }): Promise<DbTopic> {
   const id = generateId();
   const now = new Date().toISOString();
-  await execute(
-    "INSERT INTO topics (id, user_id, zhihu_id, title, excerpt, heat_score, answer_count, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [id, data.userId, data.zhihuId || null, data.title, data.excerpt || null, data.heatScore ?? null, data.answerCount ?? null, data.status || "pending", now, now],
-  );
+  await db.execute({
+    sql: `INSERT INTO topics (id, user_id, zhihu_id, title, excerpt, heat_score, answer_count, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [id, data.userId, data.zhihuId || null, data.title, data.excerpt || null, data.heatScore ?? null, data.answerCount ?? null, data.status || "pending", now, now],
+  });
   return { id, user_id: data.userId, zhihu_id: data.zhihuId || null, title: data.title, excerpt: data.excerpt || null, heat_score: data.heatScore ?? null, answer_count: data.answerCount ?? null, category: null, status: data.status || "pending", created_at: now, updated_at: now };
 }
 
 export async function findTopicById(id: string): Promise<DbTopic | null> {
-  const { columns, rows } = await execute("SELECT * FROM topics WHERE id = ?", [id]);
-  return (rows[0] ? rowToObj(rows[0], columns) as unknown as DbTopic : null);
+  const result = await db.execute({ sql: "SELECT * FROM topics WHERE id = ?", args: [id] });
+  return (result.rows[0] as unknown as DbTopic) || null;
 }
 
 // ---- Article operations ----
@@ -182,29 +157,29 @@ export async function createArticle(data: {
 }): Promise<DbArticle> {
   const id = generateId();
   const now = new Date().toISOString();
-  await execute(
-    "INSERT INTO articles (id, user_id, topic_id, title, content, mode, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [id, data.userId, data.topicId, data.title, data.content, data.mode || "deep", "draft", now, now],
-  );
+  await db.execute({
+    sql: `INSERT INTO articles (id, user_id, topic_id, title, content, mode, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [id, data.userId, data.topicId, data.title, data.content, data.mode || "deep", "draft", now, now],
+  });
   return { id, user_id: data.userId, topic_id: data.topicId, title: data.title, content: data.content, mode: data.mode || "deep", status: "draft", audit_result: null, published_at: null, created_at: now, updated_at: now };
 }
 
 export async function findArticleByIdAndUser(id: string, userId: string): Promise<DbArticle | null> {
-  const { columns, rows } = await execute("SELECT * FROM articles WHERE id = ? AND user_id = ?", [id, userId]);
-  return (rows[0] ? rowToObj(rows[0], columns) as unknown as DbArticle : null);
+  const result = await db.execute({ sql: "SELECT * FROM articles WHERE id = ? AND user_id = ?", args: [id, userId] });
+  return (result.rows[0] as unknown as DbArticle) || null;
 }
 
 export async function findLatestDraft(userId: string): Promise<DbArticle | null> {
-  const { columns, rows } = await execute("SELECT * FROM articles WHERE user_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1", [userId, "draft"]);
-  return (rows[0] ? rowToObj(rows[0], columns) as unknown as DbArticle : null);
+  const result = await db.execute({ sql: "SELECT * FROM articles WHERE user_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1", args: [userId, "draft"] });
+  return (result.rows[0] as unknown as DbArticle) || null;
 }
 
 export async function findLatestDraftByTitle(userId: string, title: string): Promise<DbArticle | null> {
-  const { columns, rows } = await execute("SELECT * FROM articles WHERE user_id = ? AND title = ? AND status = ? ORDER BY created_at DESC LIMIT 1", [userId, title, "draft"]);
-  return (rows[0] ? rowToObj(rows[0], columns) as unknown as DbArticle : null);
+  const result = await db.execute({ sql: "SELECT * FROM articles WHERE user_id = ? AND title = ? AND status = ? ORDER BY created_at DESC LIMIT 1", args: [userId, title, "draft"] });
+  return (result.rows[0] as unknown as DbArticle) || null;
 }
 
 export async function updateArticlePublished(id: string): Promise<void> {
   const now = new Date().toISOString();
-  await execute("UPDATE articles SET status = 'published', published_at = ?, updated_at = ? WHERE id = ?", [now, now, id]);
+  await db.execute({ sql: "UPDATE articles SET status = 'published', published_at = ?, updated_at = ? WHERE id = ?", args: [now, now, id] });
 }
