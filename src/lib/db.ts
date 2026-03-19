@@ -1,35 +1,21 @@
-// Pure fetch-based Turso/libsql HTTP client — zero native dependencies
+// Pure fetch-based Turso HTTP client — zero native dependencies
 
 const DB_URL = process.env.TURSO_DATABASE_URL?.replace("libsql://", "https://") || "";
 const DB_TOKEN = process.env.TURSO_AUTH_TOKEN || "";
 
-interface LibsqlValue {
-  type: "text" | "integer" | "float" | "blob" | "null";
-  value?: string | number | null;
+interface DbResult {
+  columns: string[];
+  rows: (string | number | boolean | null)[][];
 }
 
-function toLibsqlArg(v: string | number | boolean | null): LibsqlValue {
-  if (v === null || v === undefined) return { type: "null" };
-  if (typeof v === "number") return Number.isInteger(v) ? { type: "integer", value: v } : { type: "float", value: v };
-  if (typeof v === "boolean") return { type: "integer", value: v ? 1 : 0 };
-  return { type: "text", value: v };
-}
-
-function fromLibsqlValue(v: LibsqlValue | null): string | number | null {
-  if (!v || v.type === "null") return null;
-  return (v.value as string | number) ?? null;
-}
-
-async function execute(sql: string, args: (string | number | boolean | null)[] = []): Promise<{ rows: Record<string, string | number | null>[] }> {
+async function execute(sql: string, args: (string | number | boolean | null)[] = []): Promise<DbResult> {
   const res = await fetch(DB_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(DB_TOKEN ? { Authorization: `Bearer ${DB_TOKEN}` } : {}),
     },
-    body: JSON.stringify({
-      statements: [{ q: sql, args: args.map(toLibsqlArg) }],
-    }),
+    body: JSON.stringify({ statements: [{ q: sql, args }] }),
   });
 
   if (!res.ok) {
@@ -38,21 +24,19 @@ async function execute(sql: string, args: (string | number | boolean | null)[] =
   }
 
   const data = await res.json();
-  const result = data.results?.[0]?.response?.result;
-  if (!result) return { rows: [] };
+  const result = data[0]?.results;
+  if (!result) return { columns: [], rows: [] };
 
-  const colNames: string[] = result.cols?.map((c: { name: string }) => c.name) || [];
-  const rows: Record<string, string | number | null>[] = (result.rows || []).map(
-    (row: (LibsqlValue | null)[]) => {
-      const obj: Record<string, string | number | null> = {};
-      colNames.forEach((name, i) => {
-        obj[name] = fromLibsqlValue(row[i]);
-      });
-      return obj;
-    },
-  );
+  return {
+    columns: result.columns || [],
+    rows: (result.rows || []).map((row: unknown[]) => row.map(v => (v as string | number | boolean | null) ?? null)),
+  };
+}
 
-  return { rows };
+function rowToObj(row: (string | number | boolean | null)[], columns: string[]): Record<string, string | number | null> {
+  const obj: Record<string, string | number | null> = {};
+  columns.forEach((name, i) => { obj[name] = (typeof row[i] === "boolean" ? null : row[i]) ?? null; });
+  return obj;
 }
 
 export function generateId(): string {
@@ -78,13 +62,13 @@ export interface DbUser {
 }
 
 export async function findUserById(id: string): Promise<DbUser | null> {
-  const { rows } = await execute("SELECT * FROM users WHERE id = ?", [id]);
-  return (rows[0] as unknown as DbUser) || null;
+  const { columns, rows } = await execute("SELECT * FROM users WHERE id = ?", [id]);
+  return (rows[0] ? rowToObj(rows[0], columns) as unknown as DbUser : null);
 }
 
 export async function findUserBySecondMeId(secondmeUserId: string): Promise<DbUser | null> {
-  const { rows } = await execute("SELECT * FROM users WHERE secondme_user_id = ?", [secondmeUserId]);
-  return (rows[0] as unknown as DbUser) || null;
+  const { columns, rows } = await execute("SELECT * FROM users WHERE secondme_user_id = ?", [secondmeUserId]);
+  return (rows[0] ? rowToObj(rows[0], columns) as unknown as DbUser : null);
 }
 
 export async function upsertUser(data: {
@@ -169,8 +153,8 @@ export async function createTopic(data: {
 }
 
 export async function findTopicById(id: string): Promise<DbTopic | null> {
-  const { rows } = await execute("SELECT * FROM topics WHERE id = ?", [id]);
-  return (rows[0] as unknown as DbTopic) || null;
+  const { columns, rows } = await execute("SELECT * FROM topics WHERE id = ?", [id]);
+  return (rows[0] ? rowToObj(rows[0], columns) as unknown as DbTopic : null);
 }
 
 // ---- Article operations ----
@@ -206,18 +190,18 @@ export async function createArticle(data: {
 }
 
 export async function findArticleByIdAndUser(id: string, userId: string): Promise<DbArticle | null> {
-  const { rows } = await execute("SELECT * FROM articles WHERE id = ? AND user_id = ?", [id, userId]);
-  return (rows[0] as unknown as DbArticle) || null;
+  const { columns, rows } = await execute("SELECT * FROM articles WHERE id = ? AND user_id = ?", [id, userId]);
+  return (rows[0] ? rowToObj(rows[0], columns) as unknown as DbArticle : null);
 }
 
 export async function findLatestDraft(userId: string): Promise<DbArticle | null> {
-  const { rows } = await execute("SELECT * FROM articles WHERE user_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1", [userId, "draft"]);
-  return (rows[0] as unknown as DbArticle) || null;
+  const { columns, rows } = await execute("SELECT * FROM articles WHERE user_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1", [userId, "draft"]);
+  return (rows[0] ? rowToObj(rows[0], columns) as unknown as DbArticle : null);
 }
 
 export async function findLatestDraftByTitle(userId: string, title: string): Promise<DbArticle | null> {
-  const { rows } = await execute("SELECT * FROM articles WHERE user_id = ? AND title = ? AND status = ? ORDER BY created_at DESC LIMIT 1", [userId, title, "draft"]);
-  return (rows[0] as unknown as DbArticle) || null;
+  const { columns, rows } = await execute("SELECT * FROM articles WHERE user_id = ? AND title = ? AND status = ? ORDER BY created_at DESC LIMIT 1", [userId, title, "draft"]);
+  return (rows[0] ? rowToObj(rows[0], columns) as unknown as DbArticle : null);
 }
 
 export async function updateArticlePublished(id: string): Promise<void> {
