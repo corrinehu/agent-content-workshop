@@ -61,7 +61,7 @@ SSE 流式输出，用户实时看到每个 Agent 的产出。
 - **React 19**
 - **TypeScript**
 - **Tailwind CSS v4**
-- **Prisma + Turso (libSQL)** — 云端数据库，本地开发自动 fallback 到 SQLite
+- **@libsql/client + Turso** — 云端数据库，纯 HTTP 连接，serverless 友好
 - **SecondMe API** — OAuth 认证、用户画像、Chat/Act Agent 调用
 - **知乎开放 API** — 圈子内容抓取、Pin 发布
 
@@ -92,7 +92,7 @@ src/
 │   └── LoginButton.tsx       # SecondMe OAuth 登录按钮
 └── lib/
     ├── auth.ts               # 认证工具
-    ├── prisma.ts             # Prisma 客户端
+    ├── db.ts                 # 数据库客户端（@libsql/client）
     ├── secondme.ts           # SecondMe API 封装
     └── zhihu.ts              # 知乎开放 API 封装
 ```
@@ -103,20 +103,13 @@ src/
 # 安装依赖
 npm install
 
-# 初始化本地数据库
-npx prisma db push
-npx prisma generate
-
 # 启动开发服务器
 npm run dev
 ```
 
-本地开发不需要配置数据库环境变量，自动使用本地 SQLite（`dev.db`）。
-
 ## 数据库
 
-- **本地开发**：SQLite 文件（`dev.db`），零配置
-- **云端部署**：[Turso](https://turso.tech)（云端 SQLite，免费额度足够）
+使用 [Turso](https://turso.tech)（云端 SQLite，免费额度足够），通过 `@libsql/client` HTTP 协议连接，serverless 友好。
 
 部署时需配置以下数据库环境变量：
 
@@ -125,29 +118,13 @@ npm run dev
 | `TURSO_DATABASE_URL` | Turso 数据库连接地址，如 `libsql://xxx.turso.io` |
 | `TURSO_AUTH_TOKEN` | Turso 认证 Token |
 
-首次部署时需要在 Turso 创建表，可运行：
-
-```bash
-TURSO_DATABASE_URL=你的地址 TURSO_AUTH_TOKEN=你的token npx tsx -e "
-const { createClient } = require('@libsql/client');
-const c = createClient({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN });
-c.execute(\`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, secondme_user_id TEXT NOT NULL UNIQUE, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expires_at TEXT NOT NULL, name TEXT, avatar TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)\`);
-c.execute(\`CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, secondme_session_id TEXT, title TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)\`);
-c.execute(\`CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, zhihu_id TEXT, title TEXT NOT NULL, excerpt TEXT, heat_score INTEGER, answer_count INTEGER, category TEXT, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)\`);
-c.execute(\`CREATE TABLE IF NOT EXISTS articles (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE, title TEXT NOT NULL, content TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'deep', status TEXT NOT NULL DEFAULT 'draft', audit_result TEXT, published_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)\`);
-console.log('Tables created!');
-"
-```
-
-## 云端部署（EdgeOne Pages 等）
+## 部署（Netlify）
 
 ### 构建命令
 
 ```bash
 npm run build
 ```
-
-> 已内置 `prisma generate`，无需额外配置。
 
 ### 环境变量
 
