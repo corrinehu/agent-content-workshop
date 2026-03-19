@@ -69,8 +69,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   } catch (err) {
     console.error("OAuth callback error:", err);
+    const errMsg = encodeURIComponent(String(err));
     return NextResponse.redirect(
-      new URL("/?error=internal_error", request.url),
+      new URL(`/?error=internal_error&detail=${errMsg}`, request.url),
     );
   }
 }
