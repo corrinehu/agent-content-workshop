@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { findArticleByIdAndUser, updateArticlePublished } from "@/lib/db";
 import { publishPin } from "@/lib/zhihu";
 
 export async function POST(request: NextRequest) {
@@ -11,9 +11,7 @@ export async function POST(request: NextRequest) {
 
   const { articleId } = await request.json();
 
-  const article = await prisma.article.findUnique({
-    where: { id: articleId, userId: user.id },
-  });
+  const article = await findArticleByIdAndUser(articleId, user.id);
 
   if (!article) {
     return NextResponse.json({ code: -1, message: "文章不存在" }, { status: 404 });
@@ -33,13 +31,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Mark as published in DB
-  await prisma.article.update({
-    where: { id: articleId },
-    data: {
-      status: "published",
-      publishedAt: new Date(),
-    },
-  });
+  await updateArticlePublished(articleId);
 
   return NextResponse.json({
     code: 0,

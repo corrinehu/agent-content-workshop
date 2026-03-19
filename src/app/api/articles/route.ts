@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { findArticleByIdAndUser, findLatestDraft } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
   const user = await getAuthUser();
@@ -12,9 +12,7 @@ export async function GET(request: NextRequest) {
   const articleId = searchParams.get("articleId");
 
   if (articleId) {
-    const article = await prisma.article.findUnique({
-      where: { id: articleId, userId: user.id },
-    });
+    const article = await findArticleByIdAndUser(articleId, user.id);
     if (!article) {
       return NextResponse.json({ code: -1, message: "文章不存在" }, { status: 404 });
     }
@@ -22,10 +20,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Return latest draft article
-  const article = await prisma.article.findFirst({
-    where: { userId: user.id, status: "draft" },
-    orderBy: { createdAt: "desc" },
-  });
+  const article = await findLatestDraft(user.id);
 
   if (!article) {
     return NextResponse.json({ code: 0, data: null });

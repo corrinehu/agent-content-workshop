@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { prisma } from "@/lib/prisma";
+import { findUserById, updateUser } from "@/lib/db";
 import { refreshAccessToken } from "@/lib/secondme";
 
 export interface AuthUser {
@@ -16,25 +16,28 @@ export async function getAuthUser(): Promise<AuthUser | null> {
 
   if (!userId) return null;
 
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await findUserById(userId);
   if (!user) return null;
 
   // Check if token needs refresh
   const now = new Date();
   const bufferMs = 5 * 60 * 1000; // 5 min buffer
-  if (user.tokenExpiresAt && new Date(user.tokenExpiresAt.getTime() - bufferMs) < now) {
+  if (user.token_expires_at && new Date(new Date(user.token_expires_at).getTime() - bufferMs) < now) {
     try {
-      const result = await refreshAccessToken(user.refreshToken);
+      const result = await refreshAccessToken(user.refresh_token);
       if (result.code === 0 && result.data) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            accessToken: result.data.accessToken,
-            refreshToken: result.data.refreshToken || user.refreshToken,
-            tokenExpiresAt: new Date(Date.now() + (result.data.expiresIn || 7200) * 1000),
-          },
+        await updateUser(user.id, {
+          accessToken: result.data.accessToken,
+          refreshToken: result.data.refreshToken || user.refresh_token,
+          tokenExpiresAt: new Date(Date.now() + (result.data.expiresIn || 7200) * 1000),
         });
-        user.accessToken = result.data.accessToken;
+        return {
+          id: user.id,
+          secondmeUserId: user.secondme_user_id,
+          name: user.name,
+          avatar: user.avatar,
+          accessToken: result.data.accessToken,
+        };
       }
     } catch {
       console.warn("Token refresh failed, using existing token");
@@ -43,9 +46,9 @@ export async function getAuthUser(): Promise<AuthUser | null> {
 
   return {
     id: user.id,
-    secondmeUserId: user.secondmeUserId,
+    secondmeUserId: user.secondme_user_id,
     name: user.name,
     avatar: user.avatar,
-    accessToken: user.accessToken,
+    accessToken: user.access_token,
   };
 }

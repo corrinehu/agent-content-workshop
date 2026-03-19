@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { findTopicById, createTopic, createArticle, findLatestDraftByTitle } from "@/lib/db";
 import { sendChatMessage } from "@/lib/secondme";
 
 const SYSTEM_PROMPTS = {
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   let topicTitle = title || "未知话题";
   try {
     if (topicId) {
-      const topic = await prisma.topic.findUnique({ where: { id: topicId } });
+      const topic = await findTopicById(topicId);
       if (topic) topicTitle = topic.title;
     }
   } catch {
@@ -119,23 +119,18 @@ export async function POST(request: NextRequest) {
         try {
           let articleTopicId = topicId;
           if (topicId) {
-            const existing = await prisma.topic.findUnique({ where: { id: topicId } });
+            const existing = await findTopicById(topicId);
             if (!existing) {
-              const newTopic = await prisma.topic.create({
-                data: { userId: user.id, title: topicTitle, status: "working" },
-              });
+              const newTopic = await createTopic({ userId: user.id, title: topicTitle, status: "working" });
               articleTopicId = newTopic.id;
             }
           }
-          await prisma.article.create({
-            data: {
-              userId: user.id,
-              topicId: articleTopicId,
-              title: topicTitle,
-              content: finalDraft,
-              mode,
-              status: "draft",
-            },
+          await createArticle({
+            userId: user.id,
+            topicId: articleTopicId,
+            title: topicTitle,
+            content: finalDraft,
+            mode,
           });
         } catch (err) {
           console.warn("Failed to save article:", err);
@@ -143,10 +138,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Fetch the saved article to get its ID
-        const savedArticle = await prisma.article.findFirst({
-          where: { userId: user.id, title: topicTitle, status: "draft" },
-          orderBy: { createdAt: "desc" },
-        });
+        const savedArticle = await findLatestDraftByTitle(user.id, topicTitle);
         if (savedArticle) {
           sendEvent("article_id", savedArticle.id);
         }

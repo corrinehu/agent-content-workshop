@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { exchangeCode, getSecondMeUser } from "@/lib/secondme";
-import { prisma } from "@/lib/prisma";
+import { upsertUser } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -39,23 +39,13 @@ export async function GET(request: NextRequest) {
     const secondmeUserId = userData.userId || userData.id || "unknown";
 
     // Upsert user in database
-    const user = await prisma.user.upsert({
-      where: { secondmeUserId },
-      update: {
-        accessToken: accessToken,
-        refreshToken: refreshToken || "",
-        tokenExpiresAt: expiresAt,
-        name: userData.nickname || userData.name,
-        avatar: userData.avatar,
-      },
-      create: {
-        secondmeUserId,
-        accessToken: accessToken,
-        refreshToken: refreshToken || "",
-        tokenExpiresAt: expiresAt,
-        name: userData.nickname || userData.name,
-        avatar: userData.avatar,
-      },
+    const user = await upsertUser({
+      secondmeUserId,
+      accessToken,
+      refreshToken: refreshToken || "",
+      tokenExpiresAt: expiresAt,
+      name: userData.nickname || userData.name || null,
+      avatar: userData.avatar || null,
     });
 
     // Set session cookie

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { createTopic } from "@/lib/db";
 import { getSecondMeShades, getSecondMeSoftMemory } from "@/lib/secondme";
 import { fetchRingDetail, type RingContent, type RingInfo } from "@/lib/zhihu";
 
@@ -174,18 +174,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ code: -1, message: "未登录" }, { status: 401 });
   }
 
-  const { zhihuId, title, excerpt, heatScore, answerCount, ringId, ringName } = await request.json();
+  const { zhihuId, title, excerpt, heatScore, answerCount } = await request.json();
 
-  const topic = await prisma.topic.create({
-    data: {
-      userId: user.id,
-      zhihuId,
-      title,
-      excerpt,
-      heatScore,
-      answerCount,
-      status: "pending",
-    },
+  const topic = await createTopic({
+    userId: user.id,
+    zhihuId,
+    title,
+    excerpt,
+    heatScore,
+    answerCount,
   });
 
   return NextResponse.json({ code: 0, data: topic });
