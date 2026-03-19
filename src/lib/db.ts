@@ -28,7 +28,7 @@ async function execute(sql: string, args: (string | number | boolean | null)[] =
       ...(DB_TOKEN ? { Authorization: `Bearer ${DB_TOKEN}` } : {}),
     },
     body: JSON.stringify({
-      requests: [{ type: "execute", stmt: { sql, args: args.map(toLibsqlArg) } }],
+      statements: [{ q: sql, args: args.map(toLibsqlArg) }],
     }),
   });
 

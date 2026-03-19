@@ -3,14 +3,29 @@ import { cookies } from "next/headers";
 import { exchangeCode, getSecondMeUser } from "@/lib/secondme";
 import { upsertUser } from "@/lib/db";
 
+function getBaseUrl(request: NextRequest): string {
+  // EdgeOne proxies to localhost:9000 internally, so request.url is unreliable.
+  // Use the configured redirect URI as base, or fall back to Host header.
+  const redirectUri = process.env.SECONDME_REDIRECT_URI;
+  if (redirectUri) {
+    const u = new URL(redirectUri);
+    return u.origin;
+  }
+  const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "localhost:3000";
+  const proto = request.headers.get("x-forwarded-proto") || "https";
+  return `${proto}://${host}`;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const error = searchParams.get("error");
 
+  const base = getBaseUrl(request);
+
   if (error || !code) {
-    return NextResponse.redirect(new URL("/?error=auth_failed", request.url));
+    return NextResponse.redirect(new URL("/?error=auth_failed", base));
   }
 
   const cookieStore = await cookies();
@@ -25,9 +40,7 @@ export async function GET(request: NextRequest) {
     const tokenResult = await exchangeCode(code);
 
     if (tokenResult.code !== 0 || !tokenResult.data) {
-      return NextResponse.redirect(
-        new URL("/?error=token_exchange_failed", request.url),
-      );
+      return NextResponse.redirect(new URL("/?error=token_exchange_failed", base));
     }
 
     const { accessToken, refreshToken, expiresIn } = tokenResult.data;
@@ -56,12 +69,10 @@ export async function GET(request: NextRequest) {
       maxAge: 30 * 24 * 60 * 60, // 30 days
     });
 
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return NextResponse.redirect(new URL("/dashboard", base));
   } catch (err) {
     console.error("OAuth callback error:", err);
     const errMsg = encodeURIComponent(String(err));
-    return NextResponse.redirect(
-      new URL(`/?error=internal_error&detail=${errMsg}`, request.url),
-    );
+    return NextResponse.redirect(new URL(`/?error=internal_error&detail=${errMsg}`, base));
   }
 }
