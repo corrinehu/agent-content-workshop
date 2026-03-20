@@ -91,7 +91,7 @@ function PublishContent() {
           <div>
             <h1 className="text-2xl font-bold mb-1">发布预览</h1>
             <p className="text-sm text-muted">
-              {publishMode === "quick" ? "闪念模式 · 审计通过后复制发布" : "深度模式 · 审计通过后复制发布"}
+              {publishMode === "quick" ? "闪念模式 · 审计通过后发布想法到知乎圈子" : "深度模式 · 审计通过后发布文章到知乎圈子"}
             </p>
           </div>
           <div className="flex gap-2">
@@ -113,6 +113,13 @@ function PublishContent() {
             >
               {copied ? "已复制" : "复制内容"}
             </button>
+            <button
+              disabled
+              className="px-4 py-2 text-sm bg-gray-300 text-gray-500 rounded-lg cursor-not-allowed"
+              title="Demo 模式暂不支持直接发布"
+            >
+              {publishMode === "quick" ? "发布想法" : "发布文章"}
+            </button>
           </div>
         </div>
 
@@ -120,7 +127,7 @@ function PublishContent() {
         {!auditResult && !auditing && content && (
           <div className="mb-4 flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
             <span className="shrink-0">&#9888;</span>
-            请先点击「质量审计」，审计通过后复制内容发布
+            请先点击「质量审计」，审计通过后才能发布
           </div>
         )}
         {auditResult && auditResult.compliance_passed === false && !auditing && (
@@ -132,7 +139,7 @@ function PublishContent() {
         {auditResult && auditResult.compliance_passed === true && !auditing && (
           <div className="mb-4 flex items-center gap-2 px-4 py-2.5 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
             <span className="shrink-0">&#9989;</span>
-            审计通过，请复制内容后自行发布到知乎。如有建议可先修改内容，再点击「重新审计」
+            审计通过，可以发布。如有建议可先修改内容，再点击「重新审计」
           </div>
         )}
 
