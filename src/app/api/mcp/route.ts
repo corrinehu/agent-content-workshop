@@ -359,23 +359,7 @@ async function handlePolishContent(
 // ---- Main handler ----
 
 export async function POST(request: NextRequest) {
-  // 1. Auth: extract bearer token
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    return NextResponse.json(
-      jsonRpcError(null, -32001, "Missing or invalid Authorization header"),
-      { status: 401 },
-    );
-  }
-  const bearerToken = authHeader.slice(7);
-  if (!bearerToken) {
-    return NextResponse.json(
-      jsonRpcError(null, -32001, "Empty bearer token"),
-      { status: 401 },
-    );
-  }
-
-  // 2. Parse JSON-RPC request
+  // 1. Parse JSON-RPC request
   let body: JsonRpcRequest;
   try {
     body = await request.json();
@@ -386,10 +370,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Notifications have no id — handle and return empty
-  const isNotification = body.id === undefined || body.id === null;
-
-  // 3. Handle initialize
+  // 2. Handle initialize (no auth required)
   if (body.method === "initialize") {
     const result = jsonRpcResult(body.id ?? null, {
       protocolVersion: "2024-11-05",
@@ -402,18 +383,39 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   }
 
-  // 4. Handle notifications/initialized — no response needed
+  // 3. Handle notifications/initialized — no response needed
   if (body.method === "notifications/initialized") {
     return new NextResponse(null, { status: 204 });
   }
 
-  // 5. Handle tools/list
+  // 4. Handle tools/list (no auth required)
   if (body.method === "tools/list") {
     return NextResponse.json(jsonRpcResult(body.id ?? null, { tools: TOOLS }));
   }
 
-  // 6. Handle tools/call — requires auth verification
+  // 5. Handle tools/call — requires auth verification
   if (body.method === "tools/call") {
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json(
+        jsonRpcResult(body.id ?? null, {
+          content: [
+            { type: "text", text: "Missing or invalid Authorization header" },
+          ],
+          isError: true,
+        }),
+      );
+    }
+    const bearerToken = authHeader.slice(7);
+    if (!bearerToken) {
+      return NextResponse.json(
+        jsonRpcResult(body.id ?? null, {
+          content: [{ type: "text", text: "Empty bearer token" }],
+          isError: true,
+        }),
+      );
+    }
+
     const toolName = body.params?.name as string | undefined;
     const toolArgs = (body.params?.arguments || {}) as Record<string, unknown>;
 
