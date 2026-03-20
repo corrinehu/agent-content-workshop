@@ -18,7 +18,6 @@ function PublishContent() {
   const [auditResult, setAuditResult] = useState<Record<string, unknown> | null>(null);
   const [auditing, setAuditing] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
-  const [publishing, setPublishing] = useState(false);
   const [copied, setCopied] = useState(false);
   const publishMode = searchParams.get("mode") || "deep";
 
@@ -78,27 +77,6 @@ function PublishContent() {
     }
   };
 
-  const handlePublish = async () => {
-    setPublishing(true);
-    try {
-      const res = await fetch("/api/publish", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ articleId: articleId || "latest" }),
-      });
-      const data = await res.json();
-      if (data.code === 0) {
-        alert("发布成功！");
-      } else {
-        alert("发布失败：" + (data.message || "未知错误"));
-      }
-    } catch {
-      alert("发布失败，请重试");
-    } finally {
-      setPublishing(false);
-    }
-  };
-
   const handleCopy = () => {
     navigator.clipboard.writeText(content);
     setCopied(true);
@@ -113,7 +91,7 @@ function PublishContent() {
           <div>
             <h1 className="text-2xl font-bold mb-1">发布预览</h1>
             <p className="text-sm text-muted">
-              {publishMode === "quick" ? "闪念模式 · 审计通过后发布想法到知乎圈子" : "深度模式 · 审计通过后发布文章到知乎圈子"}
+              {publishMode === "quick" ? "闪念模式 · 审计通过后复制发布" : "深度模式 · 审计通过后复制发布"}
             </p>
           </div>
           <div className="flex gap-2">
@@ -135,26 +113,6 @@ function PublishContent() {
             >
               {copied ? "已复制" : "复制内容"}
             </button>
-            <button
-              onClick={handlePublish}
-              disabled={
-                publishing ||
-                !content ||
-                !auditResult ||
-                auditing ||
-                auditResult.compliance_passed === false
-              }
-              className="px-4 py-2 text-sm bg-success text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              title={
-                !auditResult
-                  ? "请先完成质量审计"
-                  : auditResult.compliance_passed === false
-                    ? "合规检查未通过，无法发布"
-                    : undefined
-              }
-            >
-              {publishing ? "发布中..." : publishMode === "quick" ? "发布想法" : "发布文章"}
-            </button>
           </div>
         </div>
 
@@ -162,7 +120,7 @@ function PublishContent() {
         {!auditResult && !auditing && content && (
           <div className="mb-4 flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
             <span className="shrink-0">&#9888;</span>
-            请先点击「质量审计」，审计通过后才能发布
+            请先点击「质量审计」，审计通过后复制内容发布
           </div>
         )}
         {auditResult && auditResult.compliance_passed === false && !auditing && (
@@ -174,7 +132,7 @@ function PublishContent() {
         {auditResult && auditResult.compliance_passed === true && !auditing && (
           <div className="mb-4 flex items-center gap-2 px-4 py-2.5 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
             <span className="shrink-0">&#9989;</span>
-            审计通过，可以发布。如有建议可先修改内容，再点击「重新审计」
+            审计通过，请复制内容后自行发布到知乎。如有建议可先修改内容，再点击「重新审计」
           </div>
         )}
 
