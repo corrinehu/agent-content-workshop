@@ -4,16 +4,15 @@ import { exchangeCode, getSecondMeUser } from "@/lib/secondme";
 import { upsertUser } from "@/lib/db";
 
 function getBaseUrl(request: NextRequest): string {
-  // EdgeOne proxies to localhost:9000 internally, so request.url is unreliable.
-  // Use the configured redirect URI as base, or fall back to Host header.
-  const redirectUri = process.env.SECONDME_REDIRECT_URI;
-  if (redirectUri) {
-    const u = new URL(redirectUri);
-    return u.origin;
+  // On proxy platforms (EdgeOne, Netlify), request.url may point to internal address.
+  // Detect via x-forwarded-host header; otherwise use request.url directly.
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  if (forwardedHost) {
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    return `${proto}://${forwardedHost}`;
   }
-  const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "localhost:3000";
-  const proto = request.headers.get("x-forwarded-proto") || "https";
-  return `${proto}://${host}`;
+  // Local dev or direct access — use request.url as-is
+  return new URL(request.url).origin;
 }
 
 export async function GET(request: NextRequest) {
