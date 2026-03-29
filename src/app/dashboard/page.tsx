@@ -12,18 +12,12 @@ interface Topic {
   matchScore: number;
   answerCount: number;
   matched: boolean;
-  ringName: string;
-  ringId: string;
-  authorName: string;
-  likeNum: number;
-  commentNum: number;
-}
-
-interface RingMeta {
-  id: string;
-  name: string;
-  members: number;
-  discussions: number;
+  source: string;
+  publishedTime: string;
+  views: number;
+  likes: number;
+  comments: number;
+  linkUrl: string;
 }
 
 interface UserState {
@@ -35,7 +29,6 @@ export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<UserState | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
-  const [rings, setRings] = useState<RingMeta[]>([]);
   const [interests, setInterests] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -65,7 +58,6 @@ export default function DashboardPage() {
         if (topicsData.code === 0) {
           setTopics(topicsData.data.topics || []);
           setInterests(topicsData.data.interests || []);
-          setRings(topicsData.data.rings || []);
         }
       } catch {
         setError("加载数据失败");
@@ -87,8 +79,6 @@ export default function DashboardPage() {
           excerpt: topic.excerpt,
           heatScore: topic.heatScore,
           answerCount: topic.answerCount,
-          ringId: topic.ringId,
-          ringName: topic.ringName,
         }),
       });
       const data = await res.json();
@@ -120,21 +110,8 @@ export default function DashboardPage() {
         <div className="mb-8">
           <h1 className="text-2xl font-bold mb-2">选题看板</h1>
           <p className="text-sm text-muted mb-3">
-            来自 A2A 黑客松指定知乎圈子的最新讨论
+            知乎热榜话题，基于你的兴趣标签智能推荐
           </p>
-
-          {/* Ring info */}
-          {rings.length > 0 && (
-            <div className="flex flex-wrap gap-3 mb-4">
-              {rings.map((ring) => (
-                <div key={ring.id} className="flex items-center gap-2 px-3 py-1.5 bg-primary-light rounded-lg">
-                  <span className="text-xs font-medium text-primary">{ring.name}</span>
-                  <span className="text-xs text-muted">{ring.members} 成员</span>
-                  <span className="text-xs text-muted">{ring.discussions} 讨论</span>
-                </div>
-              ))}
-            </div>
-          )}
 
           {interests.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -163,15 +140,16 @@ export default function DashboardPage() {
                       </span>
                     )}
                     <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
-                      {topic.ringName}
+                      {topic.source}
                     </span>
                   </div>
                   <h3 className="font-medium mb-1 text-foreground">{topic.title}</h3>
                   <p className="text-sm text-muted line-clamp-2">{topic.excerpt}</p>
                   <div className="flex items-center gap-4 mt-2 text-xs text-muted">
-                    <span>{topic.authorName}</span>
-                    <span>{topic.likeNum} 赞</span>
-                    <span>{topic.commentNum} 评论</span>
+                    <span>{topic.views > 0 ? `${(topic.views / 10000).toFixed(0)}万浏览` : ""}</span>
+                    <span>{topic.likes} 赞</span>
+                    <span>{topic.comments} 评论</span>
+                    <span>{topic.publishedTime}</span>
                   </div>
                 </div>
                 <button
@@ -187,7 +165,7 @@ export default function DashboardPage() {
 
         {topics.length === 0 && !loading && (
           <div className="text-center py-16 text-muted">
-            暂无圈子内容，稍后再来看看
+            暂无热榜话题，稍后再来看看
           </div>
         )}
       </main>

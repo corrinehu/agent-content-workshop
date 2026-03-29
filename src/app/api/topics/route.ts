@@ -2,39 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth";
 import { createTopic } from "@/lib/db";
 import { getSecondMeShades, getSecondMeSoftMemory } from "@/lib/secondme";
-import { fetchRingDetail, type RingContent, type RingInfo } from "@/lib/zhihu";
-
-// The two hackathon circles
-const RING_IDS = ["2001009660925334090", "2015023739549529606"];
-
-// In-memory cache
-interface CachedRingData {
-  ringInfo: RingInfo;
-  contents: RingContent[];
-  ringId: string;
-}
-const cache = new Map<string, { data: CachedRingData[]; expires: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-async function getCachedRingContents(): Promise<CachedRingData[]> {
-  const cached = cache.get("rings");
-  if (cached && cached.expires > Date.now()) {
-    return cached.data;
-  }
-
-  const results: CachedRingData[] = [];
-  for (const ringId of RING_IDS) {
-    try {
-      const detail = await fetchRingDetail(ringId, 1, 20);
-      results.push({ ringInfo: detail.ring_info, contents: detail.contents || [], ringId });
-    } catch (err) {
-      console.warn(`[Topics] Failed to fetch ring ${ringId}:`, err);
-    }
-  }
-
-  cache.set("rings", { data: results, expires: Date.now() + CACHE_TTL });
-  return results;
-}
+import { fetchBillboard } from "@/lib/zhihu";
 
 // Keyword matching
 function keywordMatchScore(text: string, keywords: string[]): number {
@@ -91,55 +59,31 @@ export async function GET() {
       // Continue without soft memory
     }
 
-    // Fetch circle contents
-    const ringData = await getCachedRingContents();
+    // Fetch Zhihu hot billboard
+    const billboard = await fetchBillboard(50, 48);
 
-    // Flatten all circle contents into topic cards
     const allKeywords = [...interests, ...softMemoryTerms];
-    const topics: {
-      zhihuId: string;
-      title: string;
-      excerpt: string;
-      heatScore: number;
-      matchScore: number;
-      answerCount: number;
-      matched: boolean;
-      ringName: string;
-      ringId: string;
-      authorName: string;
-      likeNum: number;
-      commentNum: number;
-    }[] = [];
+    const topics = billboard.map((item) => {
+      const interestScore = keywordMatchScore(item.title, interests);
+      const memoryScore = keywordMatchScore(item.title, softMemoryTerms);
+      const totalMatch = interestScore * 3 + memoryScore;
 
-    for (const ring of ringData) {
-      const ringName = ring.ringInfo?.ring_name || "未知圈子";
-      for (const item of ring.contents) {
-        // Strip HTML tags for display
-        const cleanContent = item.content.replace(/<[^>]*>/g, "").trim();
-        // Use first sentence or first 50 chars as title
-        const title = cleanContent.length > 50 ? cleanContent.slice(0, 50) + "..." : cleanContent;
-        const combined = `${item.author_name} ${cleanContent}`;
-
-        const interestScore = keywordMatchScore(combined, interests);
-        const memoryScore = keywordMatchScore(combined, softMemoryTerms);
-        const totalMatch = interestScore * 3 + memoryScore;
-
-        topics.push({
-          zhihuId: String(item.pin_id),
-          title,
-          excerpt: cleanContent.slice(0, 120),
-          heatScore: (item.like_num || 0) + (item.comment_num || 0) * 2 + (item.fav_num || 0) * 3,
-          matchScore: totalMatch,
-          answerCount: item.comment_num || 0,
-          matched: totalMatch > 0,
-          ringName,
-          ringId: ring.ringId,
-          authorName: item.author_name || "匿名",
-          likeNum: item.like_num || 0,
-          commentNum: item.comment_num || 0,
-        });
-      }
-    }
+      return {
+        zhihuId: item.token || item.link_url || "",
+        title: item.title,
+        excerpt: item.body || item.title,
+        heatScore: item.heat_score,
+        matchScore: totalMatch,
+        answerCount: item.interaction_info?.comment_count || 0,
+        matched: totalMatch > 0,
+        source: item.type === "QUESTION" ? "热榜问题" : item.type || "知乎热榜",
+        publishedTime: item.published_time_str,
+        views: item.interaction_info?.pv_count || 0,
+        likes: item.interaction_info?.vote_up_count || 0,
+        comments: item.interaction_info?.comment_count || 0,
+        linkUrl: item.link_url,
+      };
+    });
 
     // Sort: matched first, then by heat
     topics.sort((a, b) => {
@@ -154,17 +98,11 @@ export async function GET() {
       data: {
         topics: topics.slice(0, 30),
         interests,
-        rings: ringData.map(r => ({
-          id: r.ringId,
-          name: r.ringInfo?.ring_name,
-          members: r.ringInfo?.membership_num,
-          discussions: r.ringInfo?.discussion_num,
-        })),
       },
     });
   } catch (err) {
     console.error("[Topics] Fetch failed:", err);
-    return NextResponse.json({ code: -1, message: "获取圈子内容失败: " + String(err) }, { status: 500 });
+    return NextResponse.json({ code: -1, message: "获取热榜失败: " + String(err) }, { status: 500 });
   }
 }
 
